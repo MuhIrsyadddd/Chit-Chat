@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.chit_chat.data.repository.ChatRepository
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,63 +31,74 @@ class MatchmakingViewModel(
 
     private val userId: String get() = auth.currentUser?.uid ?: ""
     private var matchmakingJob: Job? = null
-    private var listenerJob: Job? = null
 
     fun startMatchmaking() {
         if (userId.isEmpty()) {
-            _state.value = MatchmakingState.Error("User tidak terautentikasi")
+            _state.value = MatchmakingState.Error("Login diperlukan")
             return
         }
         
-        stopMatchmaking()
+        // Hapus pemanggilan stopMatchmaking() di sini untuk mencegah reset state instan
+        if (_state.value is MatchmakingState.Searching) return 
+
         _state.value = MatchmakingState.Searching
-        Log.d("Matchmaking", "Starting for user: $userId")
+        Log.d("Matchmaking", "Start searching: $userId")
         
         matchmakingJob = viewModelScope.launch {
             try {
-                // Jalankan listener secara paralel sebelum mencoba findMatch
-                startListeningForMatch()
-
-                val roomId = repository.findMatch(userId)
-                if (roomId.isNotEmpty()) {
-                    Log.d("Matchmaking", "Instantly matched with room: $roomId")
-                    _state.value = MatchmakingState.Matched(roomId)
-                } else {
-                    Log.d("Matchmaking", "Entered queue, waiting for peer...")
-                    // Timer 5 menit
-                    launch {
-                        delay(300000)
-                        if (_state.value is MatchmakingState.Searching) {
-                            Log.d("Matchmaking", "Timeout reached")
-                            stopMatchmaking()
-                            _state.value = MatchmakingState.Timeout
+                // 1. Jalankan Listener
+                launch {
+                    repository.listenForIncomingMatch(userId).collect { roomId ->
+                        if (roomId != null && _state.value is MatchmakingState.Searching) {
+                            Log.d("Matchmaking", "Invited to room: $roomId")
+                            _state.value = MatchmakingState.Matched(roomId)
                         }
                     }
                 }
+
+                // 2. Timer Timeout 5 Menit
+                launch {
+                    delay(300000)
+                    if (_state.value is MatchmakingState.Searching) {
+                        Log.d("Matchmaking", "Searching timeout")
+                        _state.value = MatchmakingState.Timeout
+                        stopMatchmakingInternal()
+                    }
+                }
+
+                // 3. Loop Pencarian Aktif (Polling)
+                while (_state.value is MatchmakingState.Searching) {
+                    val matchedRoomId = repository.tryMatch(userId)
+                    if (matchedRoomId.isNotEmpty()) {
+                        Log.d("Matchmaking", "Found peer actively: $matchedRoomId")
+                        _state.value = MatchmakingState.Matched(matchedRoomId)
+                        break
+                    }
+                    delay(5000) 
+                }
+            } catch (e: CancellationException) {
+                Log.d("Matchmaking", "Job cancelled intentionally")
             } catch (e: Exception) {
-                Log.e("Matchmaking", "Error during matchmaking", e)
-                _state.value = MatchmakingState.Error(e.localizedMessage ?: "Gagal mencari teman")
+                Log.e("Matchmaking", "Search error", e)
+                // Tangani error index khusus
+                if (e.message?.contains("index") == true) {
+                    _state.value = MatchmakingState.Error("Firestore memerlukan Index. Cek logcat untuk link pembuatannya.")
+                } else {
+                    _state.value = MatchmakingState.Error("Koneksi bermasalah: ${e.localizedMessage}")
+                }
             }
         }
     }
 
-    private fun startListeningForMatch() {
-        listenerJob?.cancel()
-        listenerJob = viewModelScope.launch {
-            repository.listenForMatch(userId).collect { matchedRoomId ->
-                if (matchedRoomId != null && _state.value !is MatchmakingState.Matched) {
-                    Log.d("Matchmaking", "Found match via listener: $matchedRoomId")
-                    _state.value = MatchmakingState.Matched(matchedRoomId)
-                    // Hentikan proses pencarian aktif jika sudah dapat via listener
-                    matchmakingJob?.cancel()
-                }
-            }
-        }
+    private suspend fun stopMatchmakingInternal() {
+        matchmakingJob?.cancel()
+        matchmakingJob = null
+        repository.leaveQueue(userId)
     }
 
     fun stopMatchmaking() {
         matchmakingJob?.cancel()
-        listenerJob?.cancel()
+        matchmakingJob = null
         viewModelScope.launch {
             repository.leaveQueue(userId)
             if (_state.value is MatchmakingState.Searching) {
