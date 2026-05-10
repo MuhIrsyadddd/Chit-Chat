@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "517242183556",
+    "project_id": "capstonehacktiv8",
+    "storage_bucket": "capstonehacktiv8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:517242183556:android:940415f0b862b8be5f87d1",
+        "android_client_info": {
+          "package_name": "com.example.bottomnavyt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDisBOAcENN3iu8iQAnKcqI_WJz9acWLFg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:517242183556:android:0224c1ff6506926f5f87d1",
+        "android_client_info": {
+          "package_name": "com.example.chit_chat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDisBOAcENN3iu8iQAnKcqI_WJz9acWLFg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
